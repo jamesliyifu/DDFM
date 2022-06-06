@@ -22,10 +22,10 @@ from sklearn.model_selection import KFold
 from sklearn.cluster import KMeans
 from sklearn.linear_model import LassoCV
 from sklearn.linear_model import Lasso
-
+import time
 
 def LassoOneSE(xSampled,yResi):
-    reg = LassoCV(cv=5, random_state=0,tol=1e-3,n_alphas=50,
+    reg = LassoCV(cv=5, random_state=0,tol=1e-3,n_alphas=10,
      fit_intercept=False,max_iter=10000).fit(xSampled, yResi)
     
     rmse_path_ = np.sqrt(reg.mse_path_)
@@ -204,8 +204,10 @@ def Network_IBOSS_and_Benchmarks(n, similarity, modelSparsity, signal_to_noise_r
     sampleSizeUsedSum = np.zeros([numMethods,numSystems])
     RMSEAllSum = list()
     RMSEPredAllSum = list()
-
+    TimeAllSum = list()
+    
     for rep in range(totalNumIte):
+
         print([rep, n, similarity, modelSparsity, signal_to_noise_ratio])
     
         
@@ -224,6 +226,7 @@ def Network_IBOSS_and_Benchmarks(n, similarity, modelSparsity, signal_to_noise_r
         baseBeta = np.random.normal(0, 1, p+1)
         RMSEAll = list()
         RMSEPredAll = list()
+        TimeAll = list()
         zeroInd = np.arange(p)
         np.random.shuffle(zeroInd)
         
@@ -231,7 +234,9 @@ def Network_IBOSS_and_Benchmarks(n, similarity, modelSparsity, signal_to_noise_r
         
         # Two_Beta = list()
         
+        # generate the simulation data and the true model
         for currSys in range(numSystems):
+            
             trueBeta[:,currSys] += (baseBeta+np.sign(baseBeta)*np.random.rand(p+1)*(1/similarity))
             trueBeta[zeroInd[:int(np.round((1-modelSparsity)*p))],currSys] = 0
             mu = np.random.normal(0, 1, p)
@@ -253,56 +258,65 @@ def Network_IBOSS_and_Benchmarks(n, similarity, modelSparsity, signal_to_noise_r
             totalTestData[:,:,currSys]=np.hstack((x[n:,:],y[n:]))
             
         
-            
-            
-        ###################################
-        # currP = totalData[:,:,0].shape[1]-1
-        # AggX = np.empty([0,currP*(numSystems+1)])
-        # Aggy = np.empty(0)
-        # betaFitPre = np.zeros(p)
-        # benchBeta = np.zeros(p)
+     
+        
+        ################Sim Run###################
+
         
         
-        # for s in np.arange(1,100):
-        #     sAllPre = list()
-        #     for k in np.arange(0,numSystems):
-        #         ## IBOSS Algorithm with beta change
-        #         totalDataToBeReduce = totalData[:,:,k]
-        #         xySampled = IBOSS(s,totalDataToBeReduce)
-            
-        #         currN = xySampled.shape[0]
-                
-        #         currX = np.zeros([currN,currP*(numSystems+1)])
-        #         currX[:,0:currP] = xySampled[:,:currP]
-        #         currX[:,(k+1)*currP:(k+2)*currP] = xySampled[:,:currP]*1/numSystems
-                
-        #         AggX = np.vstack((AggX,currX))
-        #         Aggy = np.hstack((Aggy,xySampled[:,-1]))
-                
-        #     reg = LassoCV(cv=5, random_state=0,tol=1e-3,n_alphas=nAlpha,
-        #                   fit_intercept=False,max_iter=10000).fit(AggX, Aggy)
-            
-        #     betaFitPre = benchBeta  
-        #     benchBeta = reg.coef_[:currP]  
-            
-            
-            
-        #     diffBeta = mean_squared_error(betaFitPre[:p],benchBeta[:p])
-            
-             
-             
-        #     if s >1:
-        #         diffBetaAgg.append(diffBeta/mean_squared_error(betaFitPre[:p],np.zeros(p)))
-        #         if diffBetaAgg[-1]<1e-3:
-        #             break
         
-        # sAllPre.append(np.repeat(s,numSystems))         
+        
+
+        methodName = list()
+        
+        #### Full Data
+
+        sampleSizeUsed= list()
+        
+        betaFitFull = np.zeros([p+1,numSystems])
+        sAllOSrnd = list()
+        timePerEpoch = list()
+        timePerEpoch.append(0.0)
+        
+        yTestAll = np.empty(0)
+        yHatAll = np.empty(0)
                 
-        ###################################
+        for k in np.arange(0,numSystems):
+        
+            xSampled = totalData[:,:-1,k]
+            ySampled = totalData[:,-1,k]
+            
+            t = time.time()
+            reg = LassoCV(cv=5, random_state=0,tol=1e-3,n_alphas=nAlpha,
+                          fit_intercept=False,max_iter=10000).fit(xSampled, ySampled)
+                         
+            betaFitFull[:,k] = reg.coef_
+            
+            betaFitFull[-1,k] = np.mean(totalData[:,-1,k])-np.dot(np.mean(totalData[:,:-2,k],axis=0),betaFitFull[:p,k])
+            
+            eachElapsed = time.time() - t
+            timePerEpoch.append(eachElapsed)
+            
+            yTestAll = np.hstack((yTestAll,totalTestData[:,-1,k]))
+            yHatAll = np.hstack((yHatAll,np.dot(totalTestData[:,:-1,k],betaFitFull[:,k])))
+            sAllOSrnd.append(xSampled.shape[0])
+         
+        methodName.append('Full Data') 
+        RMSEAll.append(np.sqrt(mean_squared_error(betaFitFull, trueBeta)))
+        RMSEPredAll.append(np.sqrt(mean_squared_error(yTestAll,yHatAll)))
+        sampleSizeUsed.append(np.array(sAllOSrnd))
+        TimeAll.append(timePerEpoch)
+        
+        
+        #### IBOSS Network
+        timePerEpoch = list()
+ 
+        
+        
         currP = totalData[:,:,0].shape[1]-1
         AggX = np.empty([0,currP*(numSystems+1)])
         Aggy = np.empty(0)
-        
+
         s= 1
         sAllPre = list()
         for k in np.arange(0,numSystems):
@@ -319,22 +333,27 @@ def Network_IBOSS_and_Benchmarks(n, similarity, modelSparsity, signal_to_noise_r
             AggX = np.vstack((AggX,currX))
             Aggy = np.hstack((Aggy,xySampled[:,-1]))
             
+        t = time.time()    
         reg = LassoCV(cv=5, random_state=0,tol=1e-3,n_alphas=nAlpha,
                       fit_intercept=False,max_iter=10000).fit(AggX, Aggy)
         
+        # time it takes for the general model
+
         benchBeta = reg.coef_[:currP]  
+        
+        eachElapsed = time.time() - t   
+        timePerEpoch.append(eachElapsed)
         
         sAllPre.append(np.repeat(s,numSystems))         
                  
-        ###################################
-        # IBOSS Network
-        sampleSizeUsed= list()
+        
+        
         maxN = int(int(n+n/7*3)/2/p)
         betaFitProp = np.zeros([p+1,numSystems])
         betaFitPre = np.zeros([p+1,numSystems])
         diffBetaAgg = list()
         sAll = list()
-        methodName = list()
+
         
         yTestAll = np.empty(0)
         yHatAll = np.empty(0)
@@ -342,7 +361,8 @@ def Network_IBOSS_and_Benchmarks(n, similarity, modelSparsity, signal_to_noise_r
                 
         for k in np.arange(0,numSystems):
             diffBetaAgg = list()
-        
+            eachElapsed = 0
+
             for s in np.arange(1,maxN):
             #    totalDataExtracted = list()
                 ## IBOSS Algorithm with beta change
@@ -353,7 +373,15 @@ def Network_IBOSS_and_Benchmarks(n, similarity, modelSparsity, signal_to_noise_r
                 xSampled = xySampled[:,:-1]
                 ySampled = xySampled[:,-1]
                 yResi = ySampled-np.dot(xSampled,benchBeta)
-                reg = LassoOneSE(xSampled,yResi)
+                # reg = LassoOneSE(xSampled,yResi)
+                t = time.time()
+                
+                reg = LassoCV(cv=5, random_state=0,tol=1e-3,n_alphas=nAlpha,
+                              fit_intercept=False,max_iter=10000).fit(xSampled, yResi)
+                             
+                eachElapsed += time.time() - t
+                
+                
                 betaAdd = reg.coef_
                 # betaResiFit = FiveFoldCV(xSampled,yResi)
                 
@@ -367,7 +395,13 @@ def Network_IBOSS_and_Benchmarks(n, similarity, modelSparsity, signal_to_noise_r
                         break
             
             
-            betaFitProp[-1,k] = np.mean(totalData[:,-1,k])-np.dot(np.mean(totalData[:,:-2,k],axis=0),betaFitProp[:p,k])     
+            betaFitProp[-1,k] = np.mean(totalData[:,-1,k])-np.dot(np.mean(totalData[:,:-2,k],axis=0),betaFitProp[:p,k])  
+            
+            # time for each
+
+            timePerEpoch.append(eachElapsed)
+            
+            
             yTestAll = np.hstack((yTestAll,totalTestData[:,-1,k]))
             yHatAll = np.hstack((yHatAll,np.dot(totalTestData[:,:-1,k],betaFitProp[:,k])))
             sAll.append(s)
@@ -375,6 +409,7 @@ def Network_IBOSS_and_Benchmarks(n, similarity, modelSparsity, signal_to_noise_r
         methodName.append('Proposed method')
         RMSEAll.append(np.sqrt(mean_squared_error(betaFitProp, trueBeta)))
         RMSEPredAll.append(np.sqrt(mean_squared_error(yTestAll,yHatAll)))
+        TimeAll.append(timePerEpoch)
           
         
         sAll = np.max(np.hstack((np.array(sAllPre).reshape(-1,1),np.array(sAll).reshape(-1,1))),axis=1).reshape(-1)
@@ -385,29 +420,37 @@ def Network_IBOSS_and_Benchmarks(n, similarity, modelSparsity, signal_to_noise_r
         
         
         
-        ## IBOSS one system at a time same sample size
-        size = np.sum(sampleSizeUsed[0])/numSystems
+        #### IBOSS one system at a time same sample size
+        size = np.sum(sampleSizeUsed[1])/numSystems
         betaFitIBOSS = np.zeros([p+1,numSystems])
         sAllOSIBOSS = list()
+        
         
         yTestAll = np.empty(0)
         yHatAll = np.empty(0)
         
-        for k in np.arange(0,numSystems):
         
+        timePerEpoch = list()
+        timePerEpoch.append(0.0)
+        
+        for k in np.arange(0,numSystems):
+            
             ## IBOSS Algorithm with beta change
             totalDataToBeReduce = totalData[:,:,k]
             xySampled = IBOSSBench(size,totalDataToBeReduce)
         
             xSampled = xySampled[:,:-1]
             ySampled = xySampled[:,-1]
-            
+            t = time.time()
             reg = LassoCV(cv=5, random_state=0,tol=1e-3,n_alphas=nAlpha,
                           fit_intercept=False,max_iter=10000).fit(xSampled, ySampled)
                          
             betaFitIBOSS[:,k] = reg.coef_
             
-            betaFitIBOSS[-1,k] = np.mean(totalData[:,-1,k])-np.dot(np.mean(totalData[:,:-2,k],axis=0),betaFitIBOSS[:p,k])      
+            betaFitIBOSS[-1,k] = np.mean(totalData[:,-1,k])-np.dot(np.mean(totalData[:,:-2,k],axis=0),betaFitIBOSS[:p,k]) 
+            eachElapsed = time.time() - t
+            timePerEpoch.append(eachElapsed)
+            
             yTestAll = np.hstack((yTestAll,totalTestData[:,-1,k]))
             yHatAll = np.hstack((yHatAll,np.dot(totalTestData[:,:-1,k],betaFitIBOSS[:,k])))
             sAllOSIBOSS.append(xSampled.shape[0])
@@ -416,31 +459,38 @@ def Network_IBOSS_and_Benchmarks(n, similarity, modelSparsity, signal_to_noise_r
         RMSEAll.append(np.sqrt(mean_squared_error(betaFitIBOSS, trueBeta)))
         RMSEPredAll.append(np.sqrt(mean_squared_error(yTestAll,yHatAll)))
         sampleSizeUsed.append(np.array(sAllOSIBOSS))
+        TimeAll.append(timePerEpoch)
         
         
-        ## random sampling one system at a time same sample size
+        
+        #### random sampling one system at a time same sample size
         sampleSize = int(np.round(size))
         betaFitRandom = np.zeros([p+1,numSystems])
         sAllOSrnd = list()
+        timePerEpoch = list()
+        timePerEpoch.append(0.0)
         
         yTestAll = np.empty(0)
         yHatAll = np.empty(0)
                 
         for k in np.arange(0,numSystems):
         
-        
+            
             totalDataToBeReduce = totalData[:,:,k]
             xySampled = RandomSampling(sampleSize,totalDataToBeReduce)
             
             xSampled = xySampled[:,:-1]
             ySampled = xySampled[:,-1]
-            
+            t = time.time()
             reg = LassoCV(cv=5, random_state=0,tol=1e-3,n_alphas=nAlpha,
                           fit_intercept=False,max_iter=10000).fit(xSampled, ySampled)
                          
             betaFitRandom[:,k] = reg.coef_
             
-            betaFitRandom[-1,k] = np.mean(totalData[:,-1,k])-np.dot(np.mean(totalData[:,:-2,k],axis=0),betaFitRandom[:p,k])       
+            betaFitRandom[-1,k] = np.mean(totalData[:,-1,k])-np.dot(np.mean(totalData[:,:-2,k],axis=0),betaFitRandom[:p,k])
+            eachElapsed = time.time() - t
+            timePerEpoch.append(eachElapsed)
+            
             yTestAll = np.hstack((yTestAll,totalTestData[:,-1,k]))
             yHatAll = np.hstack((yHatAll,np.dot(totalTestData[:,:-1,k],betaFitRandom[:,k])))
             sAllOSrnd.append(xSampled.shape[0])
@@ -449,29 +499,37 @@ def Network_IBOSS_and_Benchmarks(n, similarity, modelSparsity, signal_to_noise_r
         RMSEAll.append(np.sqrt(mean_squared_error(betaFitRandom, trueBeta)))
         RMSEPredAll.append(np.sqrt(mean_squared_error(yTestAll,yHatAll)))
         sampleSizeUsed.append(np.array(sAllOSrnd))
+        TimeAll.append(timePerEpoch)
         
         
-        ## Strat sampling one system at a time same sample size
+        
+        #### Strat sampling one system at a time same sample size
         betaFitStrat = np.zeros([p+1,numSystems])
         sAllOSstrat = list()
+        timePerEpoch = list()
+        timePerEpoch.append(0.0)
         
         yTestAll = np.empty(0)
         yHatAll = np.empty(0)
                        
         for k in np.arange(0,numSystems):
-        
+            
+            
             totalDataToBeReduce = totalData[:,:,k]
             xySampled = StratSampling(sampleSize,totalDataToBeReduce)
             
             xSampled = xySampled[:,:-1]
             ySampled = xySampled[:,-1]
-            
+            t = time.time()
             reg = LassoCV(cv=5, random_state=0,tol=1e-3,n_alphas=nAlpha,
                           fit_intercept=False,max_iter=10000).fit(xSampled, ySampled)
                          
             betaFitStrat[:,k] = reg.coef_
             
             betaFitStrat[-1,k] = np.mean(totalData[:,-1,k])-np.dot(np.mean(totalData[:,:-2,k],axis=0),betaFitStrat[:p,k])       
+            eachElapsed = time.time() - t
+            timePerEpoch.append(eachElapsed)
+            
             yTestAll = np.hstack((yTestAll,totalTestData[:,-1,k]))
             yHatAll = np.hstack((yHatAll,np.dot(totalTestData[:,:-1,k],betaFitStrat[:,k])))
             sAllOSstrat.append(xSampled.shape[0])
@@ -480,362 +538,38 @@ def Network_IBOSS_and_Benchmarks(n, similarity, modelSparsity, signal_to_noise_r
         RMSEAll.append(np.sqrt(mean_squared_error(betaFitStrat, trueBeta)))
         RMSEPredAll.append(np.sqrt(mean_squared_error(yTestAll,yHatAll)))
         sampleSizeUsed.append(np.array(sAllOSstrat))
+        TimeAll.append(timePerEpoch)
         
         
-        ## cluster sampling one system at a time same sample size
-        betaFitClu = np.zeros([p+1,numSystems])
-        sAllOSClus = list()
-        
-        yTestAll = np.empty(0)
-        yHatAll = np.empty(0)
-        
-        for k in np.arange(0,numSystems):
-        
-        
-            totalDataToBeReduce = totalData[:,:,k]
-            xySampled = ClusterSampling(sampleSize,totalDataToBeReduce)
-            
-            xSampled = xySampled[:,:-1]
-            ySampled = xySampled[:,-1]
-            
-            reg = LassoCV(cv=5, random_state=0,tol=1e-3,n_alphas=nAlpha,
-                          fit_intercept=False,max_iter=10000).fit(xSampled, ySampled)
-                         
-            betaFitClu[:,k] = reg.coef_
-            
-            
-            betaFitClu[-1,k] = np.mean(totalData[:,-1,k])-np.dot(np.mean(totalData[:,:-2,k],axis=0),betaFitClu[:p,k])    
-            yTestAll = np.hstack((yTestAll,totalTestData[:,-1,k]))
-            yHatAll = np.hstack((yHatAll,np.dot(totalTestData[:,:-1,k],betaFitClu[:,k])))
-            sAllOSClus.append(xSampled.shape[0])
-         
-        methodName.append('Cluster Sampling Same Total Sample Size') 
-        RMSEAll.append(np.sqrt(mean_squared_error(betaFitClu, trueBeta)))
-        RMSEPredAll.append(np.sqrt(mean_squared_error(yTestAll,yHatAll)))
-        sampleSizeUsed.append(np.array(sAllOSClus))
-        
-        
+
         
         
         sampleSizeUsedSum += np.array(sampleSizeUsed)
         RMSEAllSum.append(RMSEAll)
         RMSEPredAllSum.append(RMSEPredAll)
-        # print(RMSEAll)
-        # print(RMSEPredAll)
+        TimeAllSum.append(TimeAll)
+        
         print(sampleSizeUsed)
         print(np.mean(np.array(RMSEAllSum), axis=0))
         print(np.mean(np.array(RMSEPredAllSum), axis=0))
+        print(np.mean(np.array(TimeAllSum), axis=0))
         
     sampleSizeUsedAvg = sampleSizeUsedSum/totalNumIte  
     RMSEAllSum = np.array(RMSEAllSum)
+    
     RMSEPredAllSum = np.array(RMSEPredAllSum)
+    
+    TimeAllSum = np.array(TimeAllSum)
+    
     print(np.mean(RMSEAllSum, axis=0))
     print(np.mean(RMSEPredAllSum, axis=0))
     
+    
     return [sampleSizeUsedAvg, 
             np.mean(RMSEAllSum, axis=0), np.std(RMSEAllSum, axis=0)/np.sqrt(totalNumIte),
-            np.mean(RMSEPredAllSum, axis=0), np.std(RMSEPredAllSum, axis=0)/np.sqrt(totalNumIte)]
+            np.mean(RMSEPredAllSum, axis=0), np.std(RMSEPredAllSum, axis=0)/np.sqrt(totalNumIte),
+            TimeAllSum]
 
-
-def Network_RealData(outfile, furnance_index, totalNumIte):
-    trteP = 0.9
-    totalVar = 56
-    nAlpha = 50
-    indDel = [1,3,4,5,6,7,8,9,11,12,13,15,16,17,18,19,21,23,24,27,28,29,30,31,33,34,37,38,39,40,42,43,45,47,49,50,51,52]
-    numMethods = 5
-    # num_trancated = 500
-    # numSampleUsedPerSystem = 1
-
-    RMSEAllAgg = list()
-    sampleSizeUsedSum = np.zeros([numMethods,len(furnance_index)])
-    for rep in range(totalNumIte):
-        totalTrainData = list()
-        totalTestData = list()
-                
-        for i in range(len(furnance_index)):
-            currData = np.load(outfile+'\\'+str(furnance_index[i])+'_data.npy',allow_pickle=True)
-        
-            xTrainAll = np.empty([0,totalVar-len(indDel)+1])
-            xTestAll = np.empty([0,totalVar-len(indDel)+1])
-            yTrainAll = np.empty(0)
-            yTestAll = np.empty(0)    
-            for j in range(len(currData)):
-        
-            # for j in range(1):    
-                dataImported = currData[j][:,:totalVar]
-                if dataImported.shape[0]<1000:
-                    continue
-                
-                y = np.array(dataImported[:,34],dtype=float)[1:]
-                x = np.array(np.delete(dataImported, indDel, axis=1),dtype=float)[1:,:]
-                n = x.shape[0]
-                x = np.hstack((x,np.ones(n).reshape(-1,1)))
-                
-                
-                shuffleInd = np.arange(n)
-                
-                np.random.shuffle(shuffleInd)
-                
-                xTrain, xTest = x[shuffleInd[:int(n*trteP)],:], x[shuffleInd[int(n*trteP):],:]
-                yTrain, yTest = y[shuffleInd[:int(n*trteP)]], y[shuffleInd[int(n*trteP):]]
-                
-                xTrainAll = np.vstack((xTrainAll,xTrain))
-                # scaler = preprocessing.StandardScaler().fit(xTrainAll)
-                xTestAll = np.vstack((xTestAll,xTest))
-                
-                # xTrainAll = scaler.transform(xTrainAll)
-                # xTestAll = scaler.transform(xTestAll)
-                
-                yTrainAll = np.hstack((yTrainAll,yTrain))
-                yTestAll = np.hstack((yTestAll,yTest))
-                
-            yTestAll = yTestAll-np.mean(yTrainAll)
-            yTrainAll = yTrainAll-np.mean(yTrainAll)
-            
-            totalTrainData.append(np.hstack((xTrainAll,
-                                             yTrainAll.reshape(-1,1))))
-            
-            totalTestData.append(np.hstack((xTestAll,
-                                            yTestAll.reshape(-1,1))))
-                            
-                    
-        
-        ###################################
-            
-        p = totalTrainData[0].shape[1]-1
-        numSystems = len(totalTrainData)
-        
-        AggX = np.empty([0,p*(numSystems+1)])
-        Aggy = np.empty(0)
-        
-        s= 1
-        sAllPre = list()
-        for k in np.arange(0,numSystems):
-            ## IBOSS Algorithm with beta change
-            totalDataToBeReduce = totalTrainData[k]
-            xySampled = IBOSS(s,totalDataToBeReduce)
-        
-            currN = xySampled.shape[0]
-            
-            currX = np.zeros([currN,p*(numSystems+1)])
-            currX[:,0:p] = xySampled[:,:p]
-            currX[:,(k+1)*p:(k+2)*p] = xySampled[:,:p]*1/numSystems
-            
-            AggX = np.vstack((AggX,currX))
-            Aggy = np.hstack((Aggy,xySampled[:,-1]))
-            
-        reg = LassoCV(cv=5, random_state=0,tol=1e-3,n_alphas=nAlpha,
-                      fit_intercept=False,max_iter=10000).fit(AggX, Aggy)
-        
-        benchBeta = reg.coef_[:p]  
-        
-        sAllPre.append(np.repeat(s,numSystems))         
-                 
-        
-        
-        # IBOSS Network
-        
-        RMSEAll = list()
-        sampleSizeUsed = list()
-        
-        betaFit = np.zeros([p,numSystems])
-        betaFitPre = np.zeros([p,numSystems])
-        
-        diffBetaAgg = list()
-        
-        sAll = list()
-        methodName = list()
-        yTestAll = np.empty(0)
-        yHatAll = np.empty(0)
-        
-        for k in np.arange(0,numSystems):
-            diffBetaAgg = list()
-            n = totalTrainData[k].shape[0]
-            maxN = int(n/2/p)
-            totalDataToBeReduce = totalTrainData[k]
-                
-            for s in np.arange(1,maxN):
-            #    totalDataExtracted = list()
-                ## IBOSS Algorithm with beta change
-        
-            
-                xySampled = IBOSS(s,totalDataToBeReduce)
-                
-            #    totalDataExtracted.append(xySampled)
-                xSampled = xySampled[:,:-1]
-                ySampled = xySampled[:,-1]
-                yResi = ySampled-np.dot(xSampled,benchBeta)
-                
-                # betaAdd = FiveFoldCV(xSampled,yResi)
-                
-                reg = LassoOneSE(xSampled,yResi)
-                betaAdd = reg.coef_
-        
-                betaFitPre[:,k] = betaFit[:,k]
-                betaFit[:,k] = benchBeta+betaAdd
-                
-        
-                diffBeta = mean_squared_error(betaFitPre[:,k],betaFit[:,k])
-                if s >1:
-                    diffBetaAgg.append(diffBeta/mean_squared_error(betaFitPre[:,k],np.zeros(p)))
-                    if diffBetaAgg[-1]<1e-3:
-                        break
-                    
-            betaFit[-1,k]= np.mean(totalDataToBeReduce[:,-1])-np.dot(np.mean(totalDataToBeReduce[:,:-2],axis=0),betaFit[:-1,k]) 
-            yTestAll = np.hstack((yTestAll, totalTestData[k][:,-1])) 
-            yHatAll = np.hstack((yHatAll, np.dot(totalTestData[k][:,:-1],betaFit[:,k]))) 
-             
-        
-            sAll.append(s)
-            
-        methodName.append('Proposed method')
-        
-        sAll = np.max(np.hstack((np.array(sAllPre).reshape(-1,1),np.array(sAll).reshape(-1,1))),axis=1).reshape(-1)
-        sampleSizeUsed.append(np.array(sAll)*2*p)
-        RMSEAll.append(np.sqrt(mean_squared_error(yTestAll,yHatAll)))
-        
-           
-        ## IBOSS one system at a time same sample size
-        yTestAll = np.empty(0)
-        yHatAll = np.empty(0)
-        size = np.sum(sampleSizeUsed[0])/numSystems
-        betaFit = np.zeros([p,numSystems])
-        sAllOSIBOSS = list()
-        # s=size/p/2
-        for k in np.arange(0,numSystems):
-        
-        #    totalDataExtracted = list()
-            ## IBOSS Algorithm with beta change
-            totalDataToBeReduce = totalTrainData[k]
-            xySampled = IBOSSBench(size,totalDataToBeReduce)
-            
-        #    totalDataExtracted.append(xySampled)
-            xSampled = xySampled[:,:-1]
-            ySampled = xySampled[:,-1]
-            
-            reg = LassoCV(cv=5, random_state=0,tol=1e-3,n_alphas=nAlpha,
-                fit_intercept=False,max_iter=10000).fit(xSampled, ySampled)
-                             
-            betaFit[:,k] = reg.coef_
-        
-            betaFit[-1,k]= np.mean(totalDataToBeReduce[:,-1])-np.dot(np.mean(totalDataToBeReduce[:,:-2],axis=0),betaFit[:-1,k]) 
-            yTestAll = np.hstack((yTestAll, totalTestData[k][:,-1])) 
-            yHatAll = np.hstack((yHatAll, np.dot(totalTestData[k][:,:-1],betaFit[:,k]))) 
-            
-            
-            sAllOSIBOSS.append(xSampled.shape[0])
-            
-        methodName.append('IBOSS Same Total Sample Size')
-        sampleSizeUsed.append(np.array(sAllOSIBOSS))
-        
-        RMSEAll.append(np.sqrt(mean_squared_error(yTestAll,yHatAll)))
-        
-        
-        ## random sampling one system at a time same sample size
-        yTestAll = np.empty(0)
-        yHatAll = np.empty(0)
-        sampleSize = int(np.round(size))
-        betaFit = np.zeros([p,numSystems])
-        sAllOSrnd = list()
-        
-        for k in np.arange(0,numSystems):
-        
-            totalDataToBeReduce = totalTrainData[k]
-            xySampled = RandomSampling(sampleSize,totalDataToBeReduce)
-            
-            xSampled = xySampled[:,:-1]
-            ySampled = xySampled[:,-1]
-            
-            reg = LassoCV(cv=5, random_state=0,tol=1e-3,n_alphas=nAlpha,
-                fit_intercept=False,max_iter=10000).fit(xSampled, ySampled)
-                             
-            betaFit[:,k] = reg.coef_
-            
-            betaFit[-1,k]= np.mean(totalDataToBeReduce[:,-1])-np.dot(np.mean(totalDataToBeReduce[:,:-2],axis=0),betaFit[:-1,k]) 
-            yTestAll = np.hstack((yTestAll, totalTestData[k][:,-1])) 
-            yHatAll = np.hstack((yHatAll, np.dot(totalTestData[k][:,:-1],betaFit[:,k]))) 
-            
-            sAllOSrnd.append(xSampled.shape[0])
-         
-        methodName.append('Random Sampling Same Total Sample Size') 
-        sampleSizeUsed.append(np.array(sAllOSrnd))
-        
-        RMSEAll.append(np.sqrt(mean_squared_error(yTestAll,yHatAll)))
-        
-        
-        ## Strat sampling one system at a time same sample size
-        yTestAll = np.empty(0)
-        yHatAll = np.empty(0)
-        sampleSize = int(np.round(size))
-        betaFit = np.zeros([p,numSystems])
-        sAllOSstrat = list()
-        
-        for k in np.arange(0,numSystems):
-        
-            totalDataToBeReduce = totalTrainData[k]
-            xySampled = StratSampling(sampleSize,totalDataToBeReduce)
-            
-            xSampled = xySampled[:,:-1]
-            ySampled = xySampled[:,-1]
-            
-            reg = LassoCV(cv=5, random_state=0,tol=1e-3,n_alphas=nAlpha,
-                fit_intercept=False,max_iter=10000).fit(xSampled, ySampled)
-                             
-            betaFit[:,k] = reg.coef_
-            
-            betaFit[-1,k]= np.mean(totalDataToBeReduce[:,-1])-np.dot(np.mean(totalDataToBeReduce[:,:-2],axis=0),betaFit[:-1,k]) 
-            yTestAll = np.hstack((yTestAll, totalTestData[k][:,-1])) 
-            yHatAll = np.hstack((yHatAll, np.dot(totalTestData[k][:,:-1],betaFit[:,k]))) 
-            
-            sAllOSstrat.append(xSampled.shape[0])
-         
-        methodName.append('Strat Sampling Same Total Sample Size') 
-        sampleSizeUsed.append(np.array(sAllOSstrat))
-        
-        RMSEAll.append(np.sqrt(mean_squared_error(yTestAll,yHatAll)))
-        
-        
-        ## cluster sampling one system at a time same sample size
-        yTestAll = np.empty(0)
-        yHatAll = np.empty(0)
-        sampleSize = int(np.round(size))
-        betaFit = np.zeros([p,numSystems])
-        sAllOSClus = list()
-        
-        for k in np.arange(0,numSystems):
-        
-            totalDataToBeReduce = totalTrainData[k]
-            xySampled = ClusterSampling(sampleSize,totalDataToBeReduce)
-            
-            xSampled = xySampled[:,:-1]
-            ySampled = xySampled[:,-1]
-            
-            reg = LassoCV(cv=5, random_state=0,tol=1e-3,n_alphas=nAlpha,
-                fit_intercept=False,max_iter=10000).fit(xSampled, ySampled)
-                             
-            betaFit[:,k] = reg.coef_
-            
-            betaFit[-1,k]= np.mean(totalDataToBeReduce[:,-1])-np.dot(np.mean(totalDataToBeReduce[:,:-2],axis=0),betaFit[:-1,k]) 
-            yTestAll = np.hstack((yTestAll, totalTestData[k][:,-1])) 
-            yHatAll = np.hstack((yHatAll, np.dot(totalTestData[k][:,:-1],betaFit[:,k]))) 
-            
-            sAllOSClus.append(xSampled.shape[0])
-         
-        methodName.append('Cluster Sampling Same Total Sample Size') 
-        sampleSizeUsed.append(np.array(sAllOSClus))
-        
-        RMSEAll.append(np.sqrt(mean_squared_error(yTestAll,yHatAll)))
-        
-        sampleSizeUsedSum += np.array(sampleSizeUsed)
-        RMSEAllAgg.append(RMSEAll)
-        
-        print(np.mean(np.array(RMSEAllAgg), axis=0))
-        
-
-    sampleSizeUsedAvg = sampleSizeUsedSum/totalNumIte  
-    RMSEAllAgg = np.array(RMSEAllAgg)        
-    
-    return [sampleSizeUsedAvg, np.mean(RMSEAllAgg, axis=0), np.std(RMSEAllAgg, axis=0)/np.sqrt(totalNumIte)]
 
 
 
@@ -847,20 +581,26 @@ def Network_RealData_DistN(outfile, furnance_index, totalNumIte):
     numMethods = 5
     # num_trancated = 500
     # numSampleUsedPerSystem = 1
-
+    TimeAllAgg = list()
     RMSEAllAgg = list()
+    BetaAllAgg = list()
+    
     sampleSizeUsedSum = np.zeros([numMethods,len(furnance_index)])
+    
     for rep in range(totalNumIte):
         totalTrainData = list()
         totalTestData = list()
-                
+    
+        
         for i in range(len(furnance_index)):
             currData = np.load(outfile+'\\'+str(furnance_index[i])+'_data.npy',allow_pickle=True)
         
             xTrainAll = np.empty([0,totalVar-len(indDel)+1])
             xTestAll = np.empty([0,totalVar-len(indDel)+1])
             yTrainAll = np.empty(0)
-            yTestAll = np.empty(0)    
+            yTestAll = np.empty(0)   
+            
+            
             for j in range(len(currData)):
         
             # for j in range(1):    
@@ -902,13 +642,69 @@ def Network_RealData_DistN(outfile, furnance_index, totalNumIte):
                             
                     
         
-        ###################################
+        #############Real Run######################
+        BetaAll = list()
+        TimeAll = list()   
+        RMSEAll = list()
+        sampleSizeUsed = list()
+        
+        methodName = list()        
             
         p = totalTrainData[0].shape[1]-1
         numSystems = len(totalTrainData)
+        print(numSystems)
         
+                
+        #### All Data
+
+        timePerEpoch = list()
+        timePerEpoch.append(0.0)
+        
+        yTestAll = np.empty(0)
+        yHatAll = np.empty(0)
+        # sampleSize = int(np.round(size))
+        betaFit = np.zeros([p,numSystems])
+        sAllOSstrat = list()
+        
+        for k in np.arange(0,numSystems):
+
+            
+            xSampled = totalTrainData[k][:,:-1]
+            ySampled = totalTrainData[k][:,-1]
+            t = time.time()
+            
+            reg = LassoCV(cv=5, random_state=0,tol=1e-3,n_alphas=nAlpha,
+                fit_intercept=False,max_iter=10000).fit(xSampled, ySampled)
+                             
+            betaFit[:,k] = reg.coef_
+            
+            eachElapsed = time.time() - t
+            timePerEpoch.append(eachElapsed)
+            
+            betaFit[-1,k]= np.mean(totalTrainData[k][:,-1])-np.dot(np.mean(totalTrainData[k][:,:-2],axis=0),betaFit[:-1,k]) 
+
+          
+            yTestAll = np.hstack((yTestAll, totalTestData[k][:,-1])) 
+            yHatAll = np.hstack((yHatAll, np.dot(totalTestData[k][:,:-1],betaFit[:,k]))) 
+            
+            sAllOSstrat.append(xSampled.shape[0])
+         
+        methodName.append('All Sample Size') 
+
+        sampleSizeUsed.append(np.array(sAllOSstrat))
+        
+        RMSEAll.append(np.sqrt(mean_squared_error(yTestAll,yHatAll)))
+        TimeAll.append(timePerEpoch)
+        BetaAll.append(np.array(betaFit))
+        
+        
+        
+        #### IBOSS Network  
+        timePerEpoch = list()
+
         AggX = np.empty([0,p*(numSystems+1)])
         Aggy = np.empty(0)
+        
         
         s= 1
         sAllPre = list()
@@ -926,31 +722,35 @@ def Network_RealData_DistN(outfile, furnance_index, totalNumIte):
             AggX = np.vstack((AggX,currX))
             Aggy = np.hstack((Aggy,xySampled[:,-1]))
             
+        t = time.time()    
         reg = LassoCV(cv=5, random_state=0,tol=1e-3,n_alphas=nAlpha,
                       fit_intercept=False,max_iter=10000).fit(AggX, Aggy)
+        
+        eachElapsed = time.time() - t
+        timePerEpoch.append(eachElapsed)  
         
         benchBeta = reg.coef_[:p]  
         
         sAllPre.append(np.repeat(s,numSystems))         
                  
+
         
-        
-        # IBOSS Network
-        
-        RMSEAll = list()
-        sampleSizeUsed = list()
-        
+    
         betaFit = np.zeros([p,numSystems])
         betaFitPre = np.zeros([p,numSystems])
-        
+
         diffBetaAgg = list()
-        
+
         sAll = list()
         methodName = list()
         yTestAll = np.empty(0)
         yHatAll = np.empty(0)
         
+
+            
         for k in np.arange(0,numSystems):
+            eachElapsed = 0
+            
             diffBetaAgg = list()
             n = totalTrainData[k].shape[0]
             maxN = int(n/2/p)
@@ -969,8 +769,11 @@ def Network_RealData_DistN(outfile, furnance_index, totalNumIte):
                 yResi = ySampled-np.dot(xSampled,benchBeta)
                 
                 # betaAdd = FiveFoldCV(xSampled,yResi)
+                t = time.time()
+                reg = LassoCV(cv=5, random_state=0,tol=1e-3,n_alphas=nAlpha,
+                              fit_intercept=False,max_iter=10000).fit(xSampled, yResi)
+                eachElapsed += time.time() - t
                 
-                reg = LassoOneSE(xSampled,yResi)
                 betaAdd = reg.coef_
         
                 betaFitPre[:,k] = betaFit[:,k]
@@ -984,9 +787,11 @@ def Network_RealData_DistN(outfile, furnance_index, totalNumIte):
                         break
                     
             betaFit[-1,k]= np.mean(totalDataToBeReduce[:,-1])-np.dot(np.mean(totalDataToBeReduce[:,:-2],axis=0),betaFit[:-1,k]) 
+
             yTestAll = np.hstack((yTestAll, totalTestData[k][:,-1])) 
             yHatAll = np.hstack((yHatAll, np.dot(totalTestData[k][:,:-1],betaFit[:,k]))) 
-             
+
+            timePerEpoch.append(eachElapsed)
         
             sAll.append(s)
             
@@ -995,21 +800,22 @@ def Network_RealData_DistN(outfile, furnance_index, totalNumIte):
         sAll = np.max(np.hstack((np.array(sAllPre).reshape(-1,1),np.array(sAll).reshape(-1,1))),axis=1).reshape(-1)
         sampleSizeUsed.append(np.array(sAll)*2*p)
         RMSEAll.append(np.sqrt(mean_squared_error(yTestAll,yHatAll)))
+        TimeAll.append(timePerEpoch)
+        BetaAll.append(np.array(betaFit))
         
+        # trtrue = totalTestData[k][:,-1]
+        # trhat = np.dot(totalTestData[k][:,:-1],betaFit[:,k])
         
-        trtrue = totalTestData[k][:,-1]
-        trhat = np.dot(totalTestData[k][:,:-1],betaFit[:,k])
+        # resi = trhat-trtrue
         
-        resi = trhat-trtrue
-        
-        fig, ax = plt.subplots(2, 2)
-        ax[0, 0].scatter(trhat, resi,s=2) #row=0, col=0
-        ax[1, 0].hist(resi) #row=1, col=0
-        ax[0, 1].scatter(resi[:-1],resi[1:],s=2) #row=1, col=1
-        # ax[0, 1].plot()  #row=0, col=1
-        res = stats.probplot(resi, plot=plt)
-        plt.tight_layout()
-        fig.show()
+        # fig, ax = plt.subplots(2, 2)
+        # ax[0, 0].scatter(trhat, resi,s=2) #row=0, col=0
+        # ax[1, 0].hist(resi) #row=1, col=0
+        # ax[0, 1].scatter(resi[:-1],resi[1:],s=2) #row=1, col=1
+        # # ax[0, 1].plot()  #row=0, col=1
+        # res = stats.probplot(resi, plot=plt)
+        # plt.tight_layout()
+        # fig.show()
                 
             
             
@@ -1019,15 +825,25 @@ def Network_RealData_DistN(outfile, furnance_index, totalNumIte):
         totalSize = 0
         for systemInd in range(len(totalTrainData)):
             totalSize += totalTrainData[systemInd].shape[0]
+            
+            
+            
+            
         ## IBOSS one system at a time same sample size
         yTestAll = np.empty(0)
         yHatAll = np.empty(0)
+        timePerEpoch = list()
+        timePerEpoch.append(0.0)
+
+        
         # size = np.sum(sampleSizeUsed[0])/numSystems
         betaFit = np.zeros([p,numSystems])
         sAllOSIBOSS = list()
+        
         # s=size/p/2
         for k in np.arange(0,numSystems):
-            size = int(np.sum(sampleSizeUsed[0])*totalTrainData[k].shape[0]/totalSize)
+            
+            size = int(np.sum(sampleSizeUsed[1])*totalTrainData[k].shape[0]/totalSize)
         #    totalDataExtracted = list()
             ## IBOSS Algorithm with beta change
             totalDataToBeReduce = totalTrainData[k]
@@ -1036,13 +852,18 @@ def Network_RealData_DistN(outfile, furnance_index, totalNumIte):
         #    totalDataExtracted.append(xySampled)
             xSampled = xySampled[:,:-1]
             ySampled = xySampled[:,-1]
-            
+            t = time.time()
             reg = LassoCV(cv=5, random_state=0,tol=1e-3,n_alphas=nAlpha,
                 fit_intercept=False,max_iter=10000).fit(xSampled, ySampled)
                              
             betaFit[:,k] = reg.coef_
         
             betaFit[-1,k]= np.mean(totalDataToBeReduce[:,-1])-np.dot(np.mean(totalDataToBeReduce[:,:-2],axis=0),betaFit[:-1,k]) 
+            eachElapsed = time.time() - t
+            timePerEpoch.append(eachElapsed)
+
+            
+            
             yTestAll = np.hstack((yTestAll, totalTestData[k][:,-1])) 
             yHatAll = np.hstack((yHatAll, np.dot(totalTestData[k][:,:-1],betaFit[:,k]))) 
             
@@ -1053,7 +874,8 @@ def Network_RealData_DistN(outfile, furnance_index, totalNumIte):
         sampleSizeUsed.append(np.array(sAllOSIBOSS))
         
         RMSEAll.append(np.sqrt(mean_squared_error(yTestAll,yHatAll)))
-        
+        TimeAll.append(timePerEpoch)
+        BetaAll.append(np.array(betaFit))
         
         ## random sampling one system at a time same sample size
         yTestAll = np.empty(0)
@@ -1061,21 +883,29 @@ def Network_RealData_DistN(outfile, furnance_index, totalNumIte):
         # sampleSize = int(np.round(size))
         betaFit = np.zeros([p,numSystems])
         sAllOSrnd = list()
+        timePerEpoch = list()
+        timePerEpoch.append(0.0)
+
         
         for k in np.arange(0,numSystems):
-            size = int(np.sum(sampleSizeUsed[0])*totalTrainData[k].shape[0]/totalSize)
+            
+            size = int(np.sum(sampleSizeUsed[1])*totalTrainData[k].shape[0]/totalSize)
             totalDataToBeReduce = totalTrainData[k]
             xySampled = RandomSampling(size,totalDataToBeReduce)
             
             xSampled = xySampled[:,:-1]
             ySampled = xySampled[:,-1]
-            
+            t = time.time()
             reg = LassoCV(cv=5, random_state=0,tol=1e-3,n_alphas=nAlpha,
                 fit_intercept=False,max_iter=10000).fit(xSampled, ySampled)
                              
             betaFit[:,k] = reg.coef_
             
             betaFit[-1,k]= np.mean(totalDataToBeReduce[:,-1])-np.dot(np.mean(totalDataToBeReduce[:,:-2],axis=0),betaFit[:-1,k]) 
+            eachElapsed = time.time() - t
+            timePerEpoch.append(eachElapsed)
+
+        
             yTestAll = np.hstack((yTestAll, totalTestData[k][:,-1])) 
             yHatAll = np.hstack((yHatAll, np.dot(totalTestData[k][:,:-1],betaFit[:,k]))) 
             
@@ -1085,7 +915,8 @@ def Network_RealData_DistN(outfile, furnance_index, totalNumIte):
         sampleSizeUsed.append(np.array(sAllOSrnd))
         
         RMSEAll.append(np.sqrt(mean_squared_error(yTestAll,yHatAll)))
-        
+        TimeAll.append(timePerEpoch)
+        BetaAll.append(np.array(betaFit))
         
         ## Strat sampling one system at a time same sample size
         yTestAll = np.empty(0)
@@ -1093,21 +924,29 @@ def Network_RealData_DistN(outfile, furnance_index, totalNumIte):
         # sampleSize = int(np.round(size))
         betaFit = np.zeros([p,numSystems])
         sAllOSstrat = list()
+        timePerEpoch = list()
+        timePerEpoch.append(0.0)
+        betaFitPerEpoch = list()
         
         for k in np.arange(0,numSystems):
-            size = int(np.sum(sampleSizeUsed[0])*totalTrainData[k].shape[0]/totalSize)
+            
+            size = int(np.sum(sampleSizeUsed[1])*totalTrainData[k].shape[0]/totalSize)
             totalDataToBeReduce = totalTrainData[k]
             xySampled = StratSampling(size,totalDataToBeReduce)
             
             xSampled = xySampled[:,:-1]
             ySampled = xySampled[:,-1]
-            
+            t = time.time()
             reg = LassoCV(cv=5, random_state=0,tol=1e-3,n_alphas=nAlpha,
                 fit_intercept=False,max_iter=10000).fit(xSampled, ySampled)
                              
             betaFit[:,k] = reg.coef_
             
             betaFit[-1,k]= np.mean(totalDataToBeReduce[:,-1])-np.dot(np.mean(totalDataToBeReduce[:,:-2],axis=0),betaFit[:-1,k]) 
+            eachElapsed = time.time() - t
+            timePerEpoch.append(eachElapsed)
+            betaFitPerEpoch.append(betaFit)
+            
             yTestAll = np.hstack((yTestAll, totalTestData[k][:,-1])) 
             yHatAll = np.hstack((yHatAll, np.dot(totalTestData[k][:,:-1],betaFit[:,k]))) 
             
@@ -1117,46 +956,25 @@ def Network_RealData_DistN(outfile, furnance_index, totalNumIte):
         sampleSizeUsed.append(np.array(sAllOSstrat))
         
         RMSEAll.append(np.sqrt(mean_squared_error(yTestAll,yHatAll)))
+        TimeAll.append(timePerEpoch)
+        BetaAll.append(np.array(betaFit))
         
-        
-        ## cluster sampling one system at a time same sample size
-        yTestAll = np.empty(0)
-        yHatAll = np.empty(0)
-        # sampleSize = int(np.round(size))
-        betaFit = np.zeros([p,numSystems])
-        sAllOSClus = list()
-        
-        for k in np.arange(0,numSystems):
-            size = int(np.sum(sampleSizeUsed[0])*totalTrainData[k].shape[0]/totalSize)
-            totalDataToBeReduce = totalTrainData[k]
-            xySampled = ClusterSampling(size,totalDataToBeReduce)
-            
-            xSampled = xySampled[:,:-1]
-            ySampled = xySampled[:,-1]
-            
-            reg = LassoCV(cv=5, random_state=0,tol=1e-3,n_alphas=nAlpha,
-                fit_intercept=False,max_iter=10000).fit(xSampled, ySampled)
-                             
-            betaFit[:,k] = reg.coef_
-            
-            betaFit[-1,k]= np.mean(totalDataToBeReduce[:,-1])-np.dot(np.mean(totalDataToBeReduce[:,:-2],axis=0),betaFit[:-1,k]) 
-            yTestAll = np.hstack((yTestAll, totalTestData[k][:,-1])) 
-            yHatAll = np.hstack((yHatAll, np.dot(totalTestData[k][:,:-1],betaFit[:,k]))) 
-            
-            sAllOSClus.append(xSampled.shape[0])
-         
-        methodName.append('Cluster Sampling Same Total Sample Size') 
-        sampleSizeUsed.append(np.array(sAllOSClus))
-        
-        RMSEAll.append(np.sqrt(mean_squared_error(yTestAll,yHatAll)))
+
         
         sampleSizeUsedSum += np.array(sampleSizeUsed)
         RMSEAllAgg.append(RMSEAll)
+        TimeAllAgg.append(TimeAll)
+        BetaAllAgg.append(np.array(BetaAll))
         
         print(np.mean(np.array(RMSEAllAgg), axis=0))
-        
+        print(np.array(BetaAllAgg).shape)
+        # print(sampleSizeUsedSum)
 
     sampleSizeUsedAvg = sampleSizeUsedSum/totalNumIte  
-    RMSEAllAgg = np.array(RMSEAllAgg)        
-    
-    return [sampleSizeUsedAvg, np.mean(RMSEAllAgg, axis=0), np.std(RMSEAllAgg, axis=0)/np.sqrt(totalNumIte)]
+    TimeAllAgg = np.array(TimeAllAgg)        
+    BetaAllAgg = np.array(BetaAllAgg)     
+        
+    return [sampleSizeUsedAvg, np.mean(RMSEAllAgg, axis=0), np.std(RMSEAllAgg, axis=0)/np.sqrt(totalNumIte),TimeAllAgg, BetaAllAgg]
+
+
+
