@@ -8,7 +8,7 @@ Created on Wed Apr  8 19:48:40 2020
 
 import os
 
-os.chdir(r"C:\Users\liyifu\Desktop\Distrbuted Filtering and Modeling")
+os.chdir(r"G:\Other computers\CEC Desktop\Desktop\IISE Transaction\1st rebuttal")
 
 from MTLUpdate import *
 
@@ -26,51 +26,57 @@ allBetaEstimationError = list()
     
 
 totalNumIte = 100
+meanTimeAgg = np.empty([0,11])
 sampleSizeUsedAvgAgg = np.empty([0,54])
 RMSESummary = np.empty([0,10])
 RMSEPredSummary = np.empty([0,10])
-with pd.ExcelWriter(r'C:\Users\liyifu\Desktop\Distrbuted Filtering and Modeling\SimulationResultSummary_6_14.xlsx') as writer:
+
+for n in [5000,50000]:
     
-    for n in [5000,10000]:
+    for similarity in [5,10]:
         
-        for similarity in [5,10]:
-            
-            for modelSparsity in [0.3,0.7]:
-            
-                for signal_to_noise_ratio in [5,10]:
-                    
-                    [sampleSizeUsedAvg, 
-                     MeanRMSE, SERMSE,
-                     MeanPredRMSE, SEPredRMSE]=Network_IBOSS_and_Benchmarks(n, similarity, 
-                                     modelSparsity, signal_to_noise_ratio, totalNumIte)
-                    
-                    RMSESummary = np.vstack((
-                                             RMSESummary,
-                                             np.hstack(([n,np.sum(sampleSizeUsedAvg[0,:]),similarity,modelSparsity,signal_to_noise_ratio],MeanRMSE)),
-                                             np.hstack(([n,np.sum(sampleSizeUsedAvg[0,:]),similarity,modelSparsity,signal_to_noise_ratio],SERMSE))
-                                             ))
-                                             
-                    RMSEPredSummary = np.vstack((
-                                            RMSEPredSummary,
-                                            np.hstack(([n,np.sum(sampleSizeUsedAvg[0,:]),similarity,modelSparsity,signal_to_noise_ratio],MeanPredRMSE)),
-                                            np.hstack(([n,np.sum(sampleSizeUsedAvg[0,:]),similarity,modelSparsity,signal_to_noise_ratio],SEPredRMSE))
-                                            ))
-                    
-                    sampleSizeUsedAvgAgg = np.vstack((
-                                            sampleSizeUsedAvgAgg,
-                                            np.hstack(([n,similarity,modelSparsity,signal_to_noise_ratio],sampleSizeUsedAvg.reshape(-1)))
-                        
-                                            ))
-                    
-    pd.DataFrame(RMSESummary).to_excel(writer, 
-        sheet_name='RMSE')
+        for modelSparsity in [0.3,0.7]:
+        
+            for signal_to_noise_ratio in [3,7]:
+                
+                [sampleSizeUsedAvg, 
+                 MeanRMSE, SERMSE,
+                 MeanPredRMSE, SEPredRMSE,TimeAllSum]=Network_IBOSS_and_Benchmarks(n, similarity, 
+                                 modelSparsity, signal_to_noise_ratio, totalNumIte)
 
-    pd.DataFrame(RMSEPredSummary).to_excel(writer, 
-        sheet_name='RMSPE')
-
-    pd.DataFrame(sampleSizeUsedAvgAgg).to_excel(writer, 
-        sheet_name='Sample Size Summary')
-
+                RMSESummary = np.vstack((
+                                         RMSESummary,
+                                         np.hstack(([n,np.mean(sampleSizeUsedAvg[1,:]),similarity,modelSparsity,signal_to_noise_ratio],MeanRMSE)),
+                                         np.hstack(([n,np.mean(sampleSizeUsedAvg[1,:]),similarity,modelSparsity,signal_to_noise_ratio],SERMSE))
+                                         ))
+                                         
+                RMSEPredSummary = np.vstack((
+                                        RMSEPredSummary,
+                                        np.hstack(([n,np.mean(sampleSizeUsedAvg[1,:]),similarity,modelSparsity,signal_to_noise_ratio],MeanPredRMSE)),
+                                        np.hstack(([n,np.mean(sampleSizeUsedAvg[1,:]),similarity,modelSparsity,signal_to_noise_ratio],SEPredRMSE))
+                                        ))
+                
+                sampleSizeUsedAvgAgg = np.vstack((
+                                        sampleSizeUsedAvgAgg,
+                                        np.hstack(([n,similarity,modelSparsity,signal_to_noise_ratio],sampleSizeUsedAvg.reshape(-1)))
+                    
+                                        ))
+                
+                meanTimeAgg = np.vstack((meanTimeAgg,
+                                         np.mean(np.array(TimeAllSum), axis=0)))
+                with pd.ExcelWriter(r'G:\Other computers\CEC Desktop\Desktop\IISE Transaction\1st rebuttal\SimulationResultSummary_6_2.xlsx') as writer:
+                                        
+                    pd.DataFrame(RMSESummary).to_excel(writer, 
+                        sheet_name='RMSE')
+                
+                    pd.DataFrame(RMSEPredSummary).to_excel(writer, 
+                        sheet_name='RMSPE')
+                
+                    pd.DataFrame(sampleSizeUsedAvgAgg).to_excel(writer, 
+                        sheet_name='Sample Size Summary')
+                    
+                    pd.DataFrame(meanTimeAgg).to_excel(writer, 
+                        sheet_name='Time Taken')
 #print(np.vstack((np.array(MSEAll).reshape(1,-1),np.array(sampleSizeUsed))))
 #
 #
